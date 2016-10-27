@@ -1,16 +1,18 @@
 #include <PinChangeInt.h>
-#include <limits.h>
 
 int RPin=6;
 int BPin=5;
 int GPin=3;
 int ButtonPin=8;
+signed long CHANGE_STATE_CYCLES=1800;
+int BLINK_TIMES_AFTER_RELEASE=5;
+float distanceToStepFactor=0.2;
+
+
 bool isButtonPressed=false;
 bool stateOn=true;
-signed long CHANGE_STATE_CYCLES=1800;
 
-#include "PinChangeInt.h"
-
+//converts an HSV color value to an RGB color value
 void HSV_to_RGB(float h, float s, float v, byte &r, byte &g, byte &b)
 {
   int i,f,p,q,t;
@@ -22,7 +24,8 @@ void HSV_to_RGB(float h, float s, float v, byte &r, byte &g, byte &b)
   s /= 100;
   v /= 100;
   
-  if(s == 0) {
+  if(s == 0) 
+  {
     // Achromatic (grey)
     r = g = b = round(v*255);
     return;
@@ -34,7 +37,8 @@ void HSV_to_RGB(float h, float s, float v, byte &r, byte &g, byte &b)
   p = v * (1 - s);
   q = v * (1 - s * f);
   t = v * (1 - s * (1 - f));
-  switch(i) {
+  switch(i) 
+  {
     case 0:
       r = round(255*v);
       g = round(255*t);
@@ -67,6 +71,7 @@ void HSV_to_RGB(float h, float s, float v, byte &r, byte &g, byte &b)
     }
 }
 
+// writes an RGB color value to the appropriate pins
 int setRGB(int R, int G, int B)
 {
   analogWrite(RPin,R); 
@@ -74,6 +79,9 @@ int setRGB(int R, int G, int B)
   analogWrite(BPin,B); 
 }
 
+// called by an interupt when the button is pressed
+// turns the led on/off if the press is long
+// led is flashing colors as long as the button is held
 void ButtonPressed()
 {
   if ( digitalRead(ButtonPin) == LOW)
@@ -105,10 +113,12 @@ void ButtonPressed()
       f=f+0.4;
       if (f>768)
         f=0;
+        
       delay(10);
+      
       if (cycle>CHANGE_STATE_CYCLES)
       {
-        break;
+        break; // long press detected
       }
     }
    
@@ -121,7 +131,7 @@ void ButtonPressed()
       isButtonPressed=true; 
       if (cycle>CHANGE_STATE_CYCLES) 
       {
-        stateOn=!stateOn;
+        stateOn=!stateOn; // long press detected, change state
       }
     }
   }
@@ -129,17 +139,18 @@ void ButtonPressed()
 }
 
 // the setup function runs once when you press reset or power the board
-void setup() {
-  // initialize digital pin 13 as an output.
+void setup() 
+{
   pinMode(RPin, OUTPUT);
   pinMode(GPin, OUTPUT);
   pinMode(BPin, OUTPUT);
+
   pinMode(ButtonPin, INPUT_PULLUP);
+  
+  // atach interupt to the button pin, the function ButtonPressed is called when the button is pressed
   attachPinChangeInterrupt(ButtonPin, ButtonPressed,FALLING); 
   Serial.begin(9600);
 }
-
-
 
 // the loop function runs over and over again forever
 void loop() 
@@ -147,47 +158,47 @@ void loop()
   byte Val[3],ValNew[3];
   float Step[3];
 
-  HSV_to_RGB(random(0, 360),100,100,Val[0],Val[1],Val[2]);
+  // the loop interpolates between two random HSV hue values
+  
+  // generate a random hue and convert to RGB values for staring color
+  HSV_to_RGB(random(0, 360),100,random(50, 100),Val[0],Val[1],Val[2]);
       
-  for (int i=1;i<1000000;i++)
+  while (1) //run forever
   {
     
+    // generate a random hue and convert to RGB values for finishing color
+    HSV_to_RGB(random(0, 360),100,random(50, 100),ValNew[0],ValNew[1],ValNew[2]);
 
-    HSV_to_RGB(random(0, 360),100,100,ValNew[0],ValNew[1],ValNew[2]);
-
+    // calculate the distance between two random RGB values, use the distance to calculate the steps needed for interpolation
     float distance=0;
     for (int j=0;j<3;j++)
     {
       distance+=pow((ValNew[j]-Val[j]),2);
     }
     distance=sqrt(distance);
-   
-    float steps=distance/6;
+    float steps=distance*distanceToStepFactor;
+    
     for (int j=0;j<3;j++)
     {
-      //ValNew[j]= random(0, 360);
-      //ValNew[j]= random(0, 255*Factor[j]);
       Step[j]=(ValNew[j]-Val[j])/steps;
     }
     
     for (int j=0;j<steps;j++)
     {
-       byte r,g,b;
-
-
-       if (!stateOn)
+       if (!stateOn) 
        {
          setRGB(0,0,0);
        }
        else
        {
-         setRGB( Val[0]+j*Step[0],Val[1]+j*Step[1], Val[2]+j*Step[2]); 
+         setRGB( Val[0]+j*Step[0],(Val[1]+j*Step[1]), Val[2]+j*Step[2]); //interpolate between two RGB color points
        }
 
        if (isButtonPressed && stateOn)
        {
          isButtonPressed=false;
-         for (int k=0;k<5;k++)
+         //blink a few times after button is released
+         for (int k=0;k<BLINK_TIMES_AFTER_RELEASE;k++)
          {
            setRGB(255,0,0);
            delay(250);
@@ -197,9 +208,11 @@ void loop()
            delay(250);
          }
        }
+       
        delay(15);         
     }
 
+    // copy new RGB value to the original for next interpolation
     for (int j=0;j<3;j++)
       Val[j]= ValNew[j];
         
